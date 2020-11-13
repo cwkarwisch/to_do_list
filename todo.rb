@@ -21,6 +21,13 @@ get '/lists' do
   erb :lists, layout: :layout
 end
 
+# View an individual list
+get '/lists/:number' do
+  index = params[:number].to_i
+  @list = session[:lists][index]
+  erb :single_list, layout: :layout
+end
+
 # Render the new list form
 get '/lists/new' do
   erb :new_list, layout: :layout
