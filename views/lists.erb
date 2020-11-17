@@ -1,16 +1,18 @@
 <ul id="lists">
-  <% @lists.each_with_index do |list, index| %>
-    <li>
+  <% sorted_lists(@lists) do |list, index| %>
+    <li class=<%= list_class(list) %>>
       <a href='/lists/<%= index %>'>
         <h2>
           <%= list[:name] %>
         </h2>
         <p>
-          <%= list[:todos].size %>
+          <%= incomplete_tasks_count(list) %> / <%= tasks_count(list) %>
         </p>
       </a>
     </li>
   <% end %>
 </ul>
-<br>
-<a href="/lists/new">Create a New List</a>
+
+<% content_for :header_links do %>
+  <a class="add" href="/lists/new">Create a New List</a>
+<% end %>
