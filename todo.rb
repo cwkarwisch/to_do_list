@@ -6,6 +6,7 @@ require 'sinatra/content_for'
 configure do
   enable :sessions
   set :session_secret, 'secret'
+  set :erb, :escape_html => true
 end
 
 before do
@@ -15,7 +16,7 @@ end
 
 before '/lists/:list_id*' do
   @list_id = params[:list_id].to_i
-  @list = @lists[@list_id]
+  @list = load_list(@list_id)
 end
 
 before '/lists/:list_id/:tasks/:task_id' do
@@ -131,6 +132,16 @@ end
 def error_for_task_name(name, list_number)
   if !(1..100).cover?(name.size)
     'The task name must be between 1 and 100 characters.'
+  end
+end
+
+def load_list(list_id)
+  if session[:lists][list_id]
+    list = session[:lists][list_id]
+    return list
+  else
+    session[:error] = 'The specified list was not found.'
+    redirect '/'
   end
 end
 
