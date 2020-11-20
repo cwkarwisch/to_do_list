@@ -13,11 +13,7 @@
 
   <ul id="todos">
     <% sorted_tasks(@list[:todos]) do |task, task_id| %>
-      <% if task[:completed] %>
-        <li class="complete">
-      <% else %>
-        <li>
-      <% end %>
+        <li class=<%= task_class(task) %>>
 
         <form action="/lists/<%= @list_id %>/tasks/<%= task_id %>" method="POST" class="check">
           <input type="hidden" name="completed" value="<%= !task[:completed] %>" />
@@ -25,7 +21,7 @@
         </form>
 
         <h3><%= task[:name] %></h3>
-        <form action="/lists/<%= @list_id %>/delete_task/<%= task_id %>" method="POST" class="delete">
+        <form action="/lists/<%= @list_id %>/tasks/<%= task_id %>/delete" method="POST" class="delete">
           <button type="submit">Delete</button>
         </form>
       </li>
