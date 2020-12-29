@@ -12,8 +12,8 @@ configure do
 end
 
 before do
-  session[:lists] ||= []
-  @lists = session[:lists]
+  @storage = SessionPersistence.new(session)
+  @lists = @storage.all_lists
 end
 
 before /\/lists\/#{DIGITS}/ do
@@ -51,7 +51,7 @@ end
 
 # Delete an individual list
 post '/lists/:list_id/delete' do
-  session[:lists].delete_if { |list| list[:id] == @list_id }
+  @storage.delete_list(@list_id)
   if env["HTTP_X_REQUESTED_WITH"] == "XMLHttpRequest"
     "/lists"
   else
@@ -68,8 +68,7 @@ post '/lists/:list_id/task' do
     session[:error] = error
     erb :single_list, layout: :layout
   else
-    id = next_task_id(@list)
-    @list[:todos] << { name: task_name, completed: false, id: id }
+    @storage.add_task(@list_id, task_name)
     session[:success] = 'The task was successfully added.'
     redirect "/lists/#{@list_id}"
   end
@@ -83,7 +82,7 @@ post '/lists/:list_id' do
     session[:error] = error
     erb :edit_list, layout: :layout
   else
-    session[:lists].find { |list| list[:id] == @list_id }[:name] = new_list_name
+    @storage.rename_list(@list_id, new_list_name)
     session[:success] = 'The name of the list was sucessfully changed.'
     redirect "/lists/#{@list_id}"
   end
@@ -92,21 +91,20 @@ end
 # Update completed status of an existing task
 post '/lists/:list_id/tasks/:task_id' do
   task = load_task(@list_id, @task_id)
-  task[:completed] = params[:completed] == "true" ? true : false
+  new_status = params[:completed] == "true" ? true : false
+  @storage.toggle_task_completion_status(task, new_status)
   redirect "/lists/#{@list_id}"
 end
 
 # Mark all tasks in a list as complete
 post '/lists/:list_id/complete_all' do
-  @list[:todos].each do |task|
-    task[:completed] = true
-  end
+  @storage.mark_all_tasks_complete(@list_id)
   redirect "/lists/#{@list_id}"
 end
 
 # Delete a task from an existing list
 post '/lists/:list_id/tasks/:task_id/delete' do
-  @list[:todos].delete_if { |task| task[:id] == @task_id }
+  @storage.delete_task(@list_id, @task_id)
   if env["HTTP_X_REQUESTED_WITH"] == "XMLHttpRequest"
     status 204
   else
@@ -123,8 +121,7 @@ post '/lists' do
     session[:error] = error
     erb :new_list, layout: :layout
   else
-    id = next_list_id
-    session[:lists] << { name: list_name, todos: [], id: id }
+    @storage.add_list(list_name)
     session[:success] = 'The list was sucessfully created.'
     redirect '/lists'
   end
@@ -134,7 +131,7 @@ end
 def error_for_list_name(name)
   if !(1..100).cover?(name.size)
     'The list name must be between 1 and 100 characters.'
-  elsif session[:lists].any? { |list| list[:name] == name }
+  elsif @storage.list_exists?(name)
     'The list name must be unique.'
   end
 end
@@ -147,7 +144,7 @@ def error_for_task_name(name)
 end
 
 def load_list(list_id)
-  list = session[:lists].find { |list| list[:id] == list_id }
+  list = @storage.find_list(list_id)
   if list
     return list
   else
@@ -157,23 +154,13 @@ def load_list(list_id)
 end
 
 def load_task(list_id, task_id)
-  task = session[:lists].find { |list| list[:id] == list_id }[:todos].find { |task| task[:id] == task_id }
+  task = @storage.find_task(list_id, task_id)
   if task
     return task
   else
     session[:error] = 'The specified task was not found.'
     redirect "/lists/#{list_id}"
   end
-end
-
-def next_list_id
-  max = session[:lists].map { |list| list[:id] }.max || 0
-  max + 1
-end
-
-def next_task_id(list)
-  max = list[:todos].map { |task| task[:id] }.max || 0
-  max + 1
 end
 
 helpers do
@@ -211,5 +198,70 @@ helpers do
     complete, incomplete = tasks.partition { |task| task[:completed] }
     incomplete.each { |task| yield(task, task[:id]) }
     complete.each { |task| yield(task, task[:id]) }
+  end
+end
+
+class SessionPersistence
+  def initialize(session)
+    @session = session
+    @session[:lists] ||= []
+  end
+
+  def all_lists
+    @session[:lists]
+  end
+
+  def delete_list(list_id)
+    @session[:lists].delete_if { |list| list[:id] == list_id }
+  end
+
+  def delete_task(list_id, task_id)
+    list = find_list(list_id)
+    list[:todos].delete_if { |task| task[:id] == task_id }
+  end
+
+  def rename_list(list_id, new_list_name)
+    @session[:lists].find { |list| list[:id] == list_id }[:name] = new_list_name
+  end
+
+  def add_list(list_name)
+    id = next_element_id(@session[:lists])
+    @session[:lists] << { name: list_name, todos: [], id: id }
+  end
+
+  def add_task(list_id, task_name)
+    list = @session[:lists].find { |list| list[:id] == list_id }
+    id = next_element_id(list[:todos])
+    list[:todos] << { name: task_name, completed: false, id: id }
+  end
+
+  def list_exists?(name)
+    @session[:lists].any? { |list| list[:name] == name }
+  end
+
+  def find_list(list_id)
+    @session[:lists].find { |list| list[:id] == list_id }
+  end
+
+  def find_task(list_id, task_id)
+    @session[:lists].find { |list| list[:id] == list_id }[:todos].find { |task| task[:id] == task_id }
+  end
+
+  def toggle_task_completion_status(task, new_status)
+    task[:completed] = new_status
+  end
+
+  def mark_all_tasks_complete(list_id)
+    list = find_list(list_id)
+    list[:todos].each do |task|
+      task[:completed] = true
+    end
+  end
+
+  private
+
+  def next_element_id(collection)
+    max = collection.map { |element| element[:id] }.max || 0
+    max + 1
   end
 end
