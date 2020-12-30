@@ -31,6 +31,10 @@ before '/lists/:list_id/:tasks/:task_id*' do
   @task_id = params[:task_id].to_i
 end
 
+after do
+  @storage.disconnect
+end
+
 get '/' do
   redirect '/lists'
 end
