@@ -1,7 +1,8 @@
 require 'sinatra'
-require 'sinatra/reloader' if development?
 require 'tilt/erubis'
 require 'sinatra/content_for'
+
+require_relative 'database_persistence'
 
 DIGITS = '([0-9]+)'
 
@@ -11,8 +12,13 @@ configure do
   set :erb, :escape_html => true
 end
 
+configure(:development) do
+  require 'sinatra/reloader'
+  also_reload 'database_persistence.rb'
+end
+
 before do
-  @storage = SessionPersistence.new(session)
+  @storage = DatabasePersistence.new(logger)
   @lists = @storage.all_lists
 end
 
@@ -92,7 +98,7 @@ end
 post '/lists/:list_id/tasks/:task_id' do
   task = load_task(@list_id, @task_id)
   new_status = params[:completed] == "true" ? true : false
-  @storage.toggle_task_completion_status(task, new_status)
+  @storage.toggle_task_completion_status(@list_id, @task_id, new_status)
   redirect "/lists/#{@list_id}"
 end
 
@@ -131,9 +137,14 @@ end
 def error_for_list_name(name)
   if !(1..100).cover?(name.size)
     'The list name must be between 1 and 100 characters.'
-  elsif @storage.list_exists?(name)
+  elsif list_exists?(name)
     'The list name must be unique.'
   end
+end
+
+def list_exists?(name)
+  lists = @storage.all_lists
+  lists.any? { |list| list[:name] == name }
 end
 
 # Returns an error message if task name is invalid. Returns nil if name valid.
@@ -154,7 +165,7 @@ def load_list(list_id)
 end
 
 def load_task(list_id, task_id)
-  task = @storage.find_task(list_id, task_id)
+  task = @storage.find_task(task_id)
   if task
     return task
   else
@@ -198,70 +209,5 @@ helpers do
     complete, incomplete = tasks.partition { |task| task[:completed] }
     incomplete.each { |task| yield(task, task[:id]) }
     complete.each { |task| yield(task, task[:id]) }
-  end
-end
-
-class SessionPersistence
-  def initialize(session)
-    @session = session
-    @session[:lists] ||= []
-  end
-
-  def all_lists
-    @session[:lists]
-  end
-
-  def delete_list(list_id)
-    @session[:lists].delete_if { |list| list[:id] == list_id }
-  end
-
-  def delete_task(list_id, task_id)
-    list = find_list(list_id)
-    list[:todos].delete_if { |task| task[:id] == task_id }
-  end
-
-  def rename_list(list_id, new_list_name)
-    @session[:lists].find { |list| list[:id] == list_id }[:name] = new_list_name
-  end
-
-  def add_list(list_name)
-    id = next_element_id(@session[:lists])
-    @session[:lists] << { name: list_name, todos: [], id: id }
-  end
-
-  def add_task(list_id, task_name)
-    list = @session[:lists].find { |list| list[:id] == list_id }
-    id = next_element_id(list[:todos])
-    list[:todos] << { name: task_name, completed: false, id: id }
-  end
-
-  def list_exists?(name)
-    @session[:lists].any? { |list| list[:name] == name }
-  end
-
-  def find_list(list_id)
-    @session[:lists].find { |list| list[:id] == list_id }
-  end
-
-  def find_task(list_id, task_id)
-    @session[:lists].find { |list| list[:id] == list_id }[:todos].find { |task| task[:id] == task_id }
-  end
-
-  def toggle_task_completion_status(task, new_status)
-    task[:completed] = new_status
-  end
-
-  def mark_all_tasks_complete(list_id)
-    list = find_list(list_id)
-    list[:todos].each do |task|
-      task[:completed] = true
-    end
-  end
-
-  private
-
-  def next_element_id(collection)
-    max = collection.map { |element| element[:id] }.max || 0
-    max + 1
   end
 end
